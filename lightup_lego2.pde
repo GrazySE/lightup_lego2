@@ -1,3 +1,5 @@
+
+
 // Daniel Shiffman
 // All features test
 
@@ -7,10 +9,10 @@
 /**------------------------------------------------------------//
  //                                                            //
  //  IDK  - Prototype LIGHTUP LEGO2                            //
- //  av: Alrik He    v.0.1.5                                   //
+ //  av: Alrik He    v.0.2.1                                   //
  //  Malmö högskola                                            //
  //                                                            //
- //      2016-12-18    -     2017-##-##                        //
+ //      2016-12-18    -     2017-01-11                        //
  //                                                            //
  //                                                            //
  //  Used with kinect v.1  &  arduino with RGBled strips       //
@@ -24,8 +26,12 @@ import processing.serial.*;
 
 Serial arduinoPort;  
 Kinect kinect;
-
-int mx, my,interval=250;
+enum GAMEMODE {
+  MERGE, MUSIC
+};
+GAMEMODE gameMode=GAMEMODE.MUSIC;
+final int[]  black={100, 50}, grey={50, 200}, white={25, 252};
+int mx, my, interval=100, threshold=2, colorDiff=18, hueOffset=-22, modifierR=1, modifierG=5, modifierB=-1;
 float deg;
 String portName="";
 boolean ir = false;
@@ -33,7 +39,7 @@ boolean colorDepth = false;
 boolean mirror = false;
 byte gridSize=12;
 int rows=20, columns=20, offsetX, offsetY;
-boolean toggle, shift;
+boolean toggle, shift, grid;
 int [][] averageColor = new int[200][150];
 color average = color(255);
 int offset=int(gridSize*0.25), senseWidth, senseHeight;
@@ -41,8 +47,8 @@ final int leftBound=210, topBound=105, rightBound=250, bottomBound=190;
 final String colorName[]={"RED", "ORANGE", "YELLOW", "LIMEGREEN", "GREEN", "BLUE", "PURPLE", "PINK", "RED"};
 final int colorThreshold[]={0, 15, 30, 45, 60, 130, 180, 200, 240, 255};
 final byte NUM_OF_RGB_LED=40;
-long timer=3000;
-
+long timer=6000, musicTimer=6000;
+int musicInterval, musicLine, musicLineWidth;
 // Angle for rotation
 float a = 0;
 
@@ -50,8 +56,28 @@ float a = 0;
 float[] depthLookUp = new float[2048];
 int min=40, max=1000, pixelSize=gridSize;
 final int NUMBER_PIXELS=40; // strip RGBLEDs
-final int BAUDRATE= 19200;
+//final int BAUDRATE= 19200;
+final int BAUDRATE= 38400;
+
+// GAMES
+
+
+ArrayList<Block> blockList= new ArrayList<Block>(); 
+ArrayList<Particle> particleList= new ArrayList<Particle>(); 
+
+import ddf.minim.*;
+import ddf.minim.ugens.*;
+
+Minim       minim;
+AudioOutput out;
+
+
 void setup() {
+
+  minim = new Minim(this);
+  // use the getLineOut method of the Minim object to get an AudioOutput object
+  out = minim.getLineOut();
+
   mx=leftBound+1;
   // size(640, 520);
   kinect = new Kinect(this);
@@ -65,9 +91,11 @@ void setup() {
   averageColor[0][0]=color(255, 255, 0);
   //strokeCap(SQUARE);
 
-
   // Rendering in P3D
-  size(640, 480, P3D);
+  //size(640, 480, P3D);
+  size(2000, 800, P3D);
+
+  // fullScreen();
   // kinect = new Kinect(this);
   //kinect.initDepth();
   // Lookup table for all possible depth values (0 - 2047)
@@ -77,7 +105,8 @@ void setup() {
   try {
     printArray(Serial.list());
     //portName= Serial.list()[0];
-    portName ="COM98";
+    // mac: portName ="/dev/cu.usbmodemFD121";
+    portName= "COM98";
     arduinoPort = new Serial(this, portName, BAUDRATE);
     println("port succeded");
   }
@@ -89,21 +118,20 @@ void setup() {
   strokeWeight(pixelSize);
   strokeCap(SQUARE);
 
-  senseWidth=width-leftBound-rightBound;
-  senseHeight=height-topBound-bottomBound;
+  /* senseWidth=width-leftBound-rightBound;
+   senseHeight=height-topBound-bottomBound;*/
+
+  senseWidth=kinect.width-leftBound-rightBound;
+  senseHeight=kinect.height-topBound-bottomBound;
 }
 
 
 void draw() {
-
+  background(0);
   if (shift) {
     colorMode(HSB);
-
-    background(0);
-
     // Get the raw depth as array of integers
     int[] depth = kinect.getRawDepth();
-
     // We're just going to calculate and draw every 4th pixel (equivalent of 160x120)
     int skip = pixelSize;
     strokeWeight(pixelSize);
@@ -145,63 +173,55 @@ void draw() {
     //a += 0.005f;
   } else {
 
-    background(0);
     pushMatrix();
-    translate(width*.5, height*.5);
+    translate(kinect.width*.5, kinect.height*.5);
     scale(1.15);
 
 
-    image(kinect.getVideoImage(), -width*.5, -height*.5);
+    image(kinect.getVideoImage(), -kinect.width*.5, -kinect.height*.5);
     // Translate and rotate
 
     // image(kinect.getDepthImage(), 640, 0);
     fill(255);
 
     popMatrix();
-    strokeWeight(1);
-    stroke(0, 0, 0);
-    for (int i=0; i<width; i+=gridSize)line(i+offsetX, 0+offsetY, i+offsetX, height+offsetY);
-    for (int i=0; i<height; i+=gridSize)line(0+offsetX, i+offsetY, width+offsetX, i+offsetY);
-
-    colorMode(RGB);
-
-    loadPixels();
-    for (int i=0; i<width; i+=gridSize)for (int j=0; j<height; j+=gridSize) {
-      int averageRed[]= new int[5], averageGreen[]=new int[5], averageBlue[]=new int[5];
-      averageRed[0]= int(red(get(i+offset, j+offset)));
-      averageRed[1]= int(red(get(i+offset, j+gridSize-offset)));
-      averageRed[2]= int(red(get(i+gridSize-offset, j+gridSize-offset)));
-      averageRed[3]= int(red(get(i+gridSize-offset, j+offset)));
-      averageRed[4]= int(red(get(int(i+gridSize*.5), int(j+gridSize*.5))));
-
-      averageGreen[0]= int(green(get(i+offset, j+offset)));
-      averageGreen[1]= int(green(get(i+offset, j+gridSize-offset)));
-      averageGreen[2]= int(green(get(i+gridSize-offset, j+gridSize-offset)));
-      averageGreen[3]= int(green(get(i+gridSize-offset, j+offset)));
-      averageGreen[4]= int(green(get(int(i+gridSize*.5), int(j+gridSize*.5))));
-
-      averageBlue[0]= int(blue(get(i+offset, j+offset)));
-      averageBlue[1]= int(blue(get(i+offset, j+gridSize-offset)));
-      averageBlue[2]= int(blue(get(i+gridSize-offset, j+gridSize-offset)));
-      averageBlue[3]= int(blue(get(i+gridSize-offset, j+offset)));
-      averageBlue[4]= int(blue(get(int(i+gridSize*.5), int(j+gridSize*.5))));
-      int red=0, green=0, blue=0;
-      for (int r : averageRed) red+=r;
-      for (int g : averageGreen) green+=g;
-      for (int b : averageBlue) blue+=b;
-      red=int(red/5);
-      green=int(green/5);
-      blue=int(blue/5);
-
-
-      color average =color(red, green, blue);
-
-
-      averageColor[int(i/gridSize)][int(j/gridSize)]=average;
-    }
-
-
     if (toggle) {
+      colorMode(RGB);
+      loadPixels();
+      for (int i=0; i<width; i+=gridSize)for (int j=0; j<height; j+=gridSize) {
+        int averageRed[]= new int[5], averageGreen[]=new int[5], averageBlue[]=new int[5];
+        averageRed[0]= int(red(get(i+offset, j+offset)));
+        averageRed[1]= int(red(get(i+offset, j+gridSize-offset)));
+        averageRed[2]= int(red(get(i+gridSize-offset, j+gridSize-offset)));
+        averageRed[3]= int(red(get(i+gridSize-offset, j+offset)));
+        averageRed[4]= int(red(get(int(i+gridSize*.5), int(j+gridSize*.5))));
+
+        averageGreen[0]= int(green(get(i+offset, j+offset)));
+        averageGreen[1]= int(green(get(i+offset, j+gridSize-offset)));
+        averageGreen[2]= int(green(get(i+gridSize-offset, j+gridSize-offset)));
+        averageGreen[3]= int(green(get(i+gridSize-offset, j+offset)));
+        averageGreen[4]= int(green(get(int(i+gridSize*.5), int(j+gridSize*.5))));
+
+        averageBlue[0]= int(blue(get(i+offset, j+offset)));
+        averageBlue[1]= int(blue(get(i+offset, j+gridSize-offset)));
+        averageBlue[2]= int(blue(get(i+gridSize-offset, j+gridSize-offset)));
+        averageBlue[3]= int(blue(get(i+gridSize-offset, j+offset)));
+        averageBlue[4]= int(blue(get(int(i+gridSize*.5), int(j+gridSize*.5))));
+        int red=0, green=0, blue=0;
+        for (int r : averageRed) red+=r;
+        for (int g : averageGreen) green+=g;
+        for (int b : averageBlue) blue+=b;
+        red=int(red/5);
+        green=int(green/5);
+        blue=int(blue/5);
+
+        color average =color(red, green, blue);
+
+        averageColor[int(i/gridSize)][int(j/gridSize)]=average;
+      }
+
+
+      // if (toggle) {
       strokeWeight(1);
       for (int i=0; i<width; i+=gridSize)for (int j=0; j<height; j+=gridSize) {
         fill(averageColor[int(i/gridSize)][int(j/gridSize)]); 
@@ -210,20 +230,106 @@ void draw() {
       }
     }
 
-    text(
-      "Press 'i' to enable/disable between video image and IR image,  " +
-      "Press 'c' to enable/disable between color depth and gray scale depth,  " +
-      "Press 'm' to enable/diable mirror mode, "+
-      "UP and DOWN to tilt camera   " +
-      "Framerate: " + int(frameRate), 10, 515);
+    /*text(
+     "Press 'i' to enable/disable between video image and IR image,  " +
+     "Press 'c' to enable/disable between color depth and gray scale depth,  " +
+     "Press 'm' to enable/diable mirror mode, "+
+     "UP and DOWN to tilt camera   " +
+     "Framerate: " + int(frameRate), 10, 515);*/
+  }
+
+  //displayRowCapture(mx);
+  switch(gameMode) {
+  case MERGE:
+    if (timer+interval<millis()) {
+      timer=millis();
+      // for(int i=0; i<16;i++) getColumn(mx+i*gridSize,int(i*2.5));
+      //  for(int i=0; i<20;i++) getColumn(mx+i*gridSize,int(i*2));
+      for (int i=0; i<40; i++) getColumn(mx+i*5, i);
+    }
+    if (grid) displayGrid();
+
+    /*  for (Block b : blockList) {
+     b.update();
+     b.display();
+     }*/
+
+    break;
+  case MUSIC:
+    ellipse(mouseX, mouseY, 10, 10);
+    if (timer+interval<millis()) {
+      timer=millis();
+      for (int i=leftBound; i<kinect.width-rightBound; i+=gridSize*.5) {
+        for (int j=topBound; j<kinect.height-bottomBound; j+=gridSize*.5) {
+          color temp=getCell(i+1, j+2);
+          int x  = int(map(i, leftBound, kinect.width-rightBound, 0, width));
+          int y   =int(map(j, topBound, kinect.height-bottomBound, 0, height));
+          boolean create=true;
+          for (Block b : blockList) {
+            if (b.coord.x==x&& b.coord.y==y) {
+              create=false;
+            }
+          }
+          if (temp==color(0)) {
+            create=false;
+            for (Block b : blockList) {
+              if (b.coord.x==x&& b.coord.y==y) {
+                b.kill();
+              }
+            }
+          }
+
+          if (create) {
+            blockList.add(new  MusicBlock(x, y, 50, temp));
+          }
+        }
+      }
+      int index=int(map(musicLine, 0, width, 40, 0));
+
+      writeColorToindex(color(255), index);
+      //reset
+      if (index==40)writeColorToindex(color(0), 0);
+      else writeColorToindex(color(0), index+1);
+    }
+    displayTempoBars();
+
+    noFill();
+    stroke(255);
+    strokeWeight(musicLineWidth);
+
+    line(musicLine, 0, musicLine, height);
+
+    if (musicLine>width) {
+      musicLine=0;
+      for (Block b : blockList) {
+        b.reset();
+      }
+    } else 
+    musicLine+=5;
+    if (musicLineWidth<=5)musicLineWidth=5;
+    else musicLineWidth--;
+    // musicLine= int((millis()*0.5)%width);
+
+    for (Block b : blockList) {
+      b.update();
+      b.display();
+      if (b.dead) {
+        blockList.remove(b);
+        break;
+      }
+    }
+    for (Particle p : particleList) {
+      p.update();
+      p.draw();
+      if (p.dead) {
+        particleList.remove(p);
+        break;
+      }
+    }
+
+    break;
   }
   displayBounds();
-  if(timer+interval<millis()){
-  timer=millis();
-  for(int i=0; i<16;i++) getColumn(mx+i*gridSize,int(i*2.5));
-  }
-    key='1';
-  //displayRowCapture(mx);
 }
 
 void keyPressed() {
@@ -248,6 +354,7 @@ void keyPressed() {
   }
 
   if (key=='s')shift=!shift;
+  if (key=='g')grid=!grid;
   if (key=='-'&&gridSize>5) {
     gridSize--;
     offset=int(gridSize*0.25);
@@ -298,7 +405,6 @@ float rawDepthToMeters(int depthValue) {
 
 
 PVector depthToWorld(int x, int y, int depthValue) {
-
   final double fx_d = 1.0 / 5.9421434211923247e+02;
   final double fy_d = 1.0 / 5.9104053696870778e+02;
   final double cx_d = 3.3930780975300314e+02;
@@ -313,11 +419,15 @@ PVector depthToWorld(int x, int y, int depthValue) {
 }
 
 void displayBounds() {
+  pushStyle();
   noFill();
-  stroke(255);
-  rect(leftBound, topBound, width-rightBound-leftBound, height-bottomBound-topBound);
+  strokeWeight(3);
+  stroke(random(255));
+  //rect(leftBound, topBound, width-rightBound-leftBound, height-bottomBound-topBound);
+  rect(leftBound, topBound, kinect.width-rightBound-leftBound, kinect.height-bottomBound-topBound);
+  strokeWeight(3);
+  popStyle();
 }
-
 
 int getIndexInsideBounds() {
   return 0;
@@ -325,57 +435,51 @@ int getIndexInsideBounds() {
 
 
 void mousePressed() {
-  mx=mouseX;
-  my=mouseY;
-  loadPixels();
-  //int lightLVL=-10;
+  /*  mx=mouseX;
+   my=mouseY;
+   loadPixels();
+   //int lightLVL=-10;
+   colorMode(HSB);
+   color c=get(mouseX, mouseY);
+   int hue= int(hue(c));
+   int saturation= int(saturation(c));
+   int brightness= int(brightness(c));
+   //println("Integer color: "+hex(c));
+   
+   // int index=getIndexInsideBounds();
+   c=color(hue(c), 255, brightness(c-50));
+   //println("index: " +index);
+   try {
+   for (int i=0; i<NUMBER_PIXELS; i++) {
+   arduinoPort.write(i+",0x"+hex(c).substring(2, 8)+"\0");
+   println(i+",0x"+hex(c).substring(2, 8)+"\0");
+   }
+   }
+   catch(Exception e) {
+   println(e+" error");
+   }
+   println(hue, saturation, brightness);// raw
+   
+   
+   if (saturation> 75 && saturation<125 && brightness>25 && brightness<75) println("BLACK BRICK DETECTED!!!");
+   if (saturation> 25 && saturation<75 && brightness>200 && brightness<250) println("GREY BRICK DETECTED!!!");
+   if (saturation> 25 && saturation<25 && brightness>250 ) println("WHITE BRICK DETECTED!!!");
+   
+   if (saturation>50 && brightness>50) println("BLACK BRICK DETECTED!!!");
+   if (saturation>50 && brightness>50) println("BLACK BRICK DETECTED!!!");
+   else for (int i=0; i<colorName.length; i++)if (colorThreshold[i] <=hue  && hue<colorThreshold[i+1])println(colorName[i]+" BRICK DETECTED!!!");
+   // println( "x:"+mouseX, "y:"+mouseY, "z:"+kinect.getRawDepth()[mouseX + mouseY*kinect.width]);
+   */
   colorMode(HSB);
-  color c=get(mouseX, mouseY);
-  int hue= int(hue(c));
-  int saturation= int(saturation(c));
-  int brightness= int(brightness(c));
-  //println("Integer color: "+hex(c));
-
- // int index=getIndexInsideBounds();
-  c=color(hue(c), 255, brightness(c-50));
-  //println("index: " +index);
-  /*try {
-    for (int i=0; i<NUMBER_PIXELS; i++) {
-      arduinoPort.write(i+",0x"+hex(c).substring(2, 8)+"\0");
-      println(i+",0x"+hex(c).substring(2, 8)+"\0");
-    }
-  }
-  catch(Exception e) {
-    println(e+" error");
-  }*/
-  println(hue, saturation, brightness);// raw
-  //println(hue(c), saturation(c), brightness(c));
-
-  /*if ((0 <=hue  && hue<15 )||( 240 <hue  && hue<=255) )  println("Red BRICK DETECTED!!!");
-   else if (15 <hue  && hue<30)    println("ORANGE BRICK DETECTED!!!");
-   else if (30 <hue  && hue<45)    println("YELLOW BRICK DETECTED!!!");
-   else if (45 <hue  && hue<60)    println("LIMEGREEN BRICK DETECTED!!!");
-   else if (60 <hue  && hue<130)    println("GREEN BRICK DETECTED!!!");
-   else if (130 <hue  && hue<180)    println("BLUE BRICK DETECTED!!!");
-   else if (180 <hue  && hue<200)    println("PURPLE BRICK DETECTED!!!");
-   else if (200 <hue  && hue<240)    println("PINK BRICK DETECTED!!!");*/
-
-  if (saturation> 75 && saturation<125 && brightness>25 && brightness<75) println("Black BRICK DETECTED!!!");
-  if (saturation> 25 && saturation<75 && brightness>200 && brightness<250) println("Grey BRICK DETECTED!!!");
-  if (saturation> 25 && saturation<25 && brightness>250 ) println("White BRICK DETECTED!!!");
-
-  if (saturation>50 && brightness>50) println("Black BRICK DETECTED!!!");
-  if (saturation>50 && brightness>50) println("Black BRICK DETECTED!!!");
-  else for (int i=0; i<colorName.length; i++)if (colorThreshold[i] <=hue  && hue<colorThreshold[i+1])println(colorName[i]+" BRICK DETECTED!!!");
-  // println( "x:"+mouseX, "y:"+mouseY, "z:"+kinect.getRawDepth()[mouseX + mouseY*kinect.width]);
+  blockList.add(new  MusicBlock(mouseX, mouseY, 50, color(random(255), 255, 200)));
+  particleList.add(new SquarePulse(mouseX, mouseY, 50, color(255)));
 }
 
 
-void getColumn(int x,int index) {
+void getColumn(int x, int index) {
   color row[]=new color[16]; 
   int r=0, g=0, b=0, antal=0;
   colorMode(RGB);
-
   loadPixels();
   for (int i=0; i<16; i++) {
     row[i] = get(x, gridSize*i+topBound+1);
@@ -383,50 +487,99 @@ void getColumn(int x,int index) {
     int saturation=int(saturation(row[i]));
     int brightness=int(brightness(row[i]));
 
-    stroke(255);
-    if ((saturation> 75 && saturation<125 && brightness>25 && brightness<75 ) || (saturation> 25 && saturation<75 && brightness>200 && brightness<225) || (saturation> 25 && saturation<25 && brightness>250) ) {
-      stroke(0);//ignore color range
+    //stroke(255);
+    if ((saturation> 100-threshold && saturation<100+threshold && brightness>50-threshold && brightness<50+threshold ) || 
+      (saturation> 50-threshold && saturation<50+threshold && brightness>200-threshold && brightness<200+threshold) ||
+      (saturation> 25-threshold && saturation<25+threshold && brightness>252-threshold) ) {
+      //stroke(0);//ignore color range
     } else antal++;
-    noFill();
+    //noFill();
     //ellipse( int(x), gridSize*i+topBound +1, 5, 5);
     //println("row" +i+" brick is color: " +row[i]);
   }
-  
-  for (color red : row)  r+=red(red);
-  for (color green : row)   g+=green(green);
-  for (color blue : row)  b+=blue(blue);
-  
-  average=color(r/antal, g/antal, b/antal);
+
+  /*for (color red : row)  r+=red(red)+4;
+   for (color green : row)   g+=green(green);
+   for (color blue : row)  b+=blue(blue)-2;*/
+  for (color red : row)  r+=red(red)+modifierR;
+  for (color green : row)   g+=green(green)+modifierG;
+  for (color blue : row)  b+=blue(blue)+modifierB;
+  if (antal==0) {
+    average=color(0);
+  } else
+    average=color(r/antal, g/antal, b/antal);
   // println("color" + average);
   //  colorMode(RGB);
-boolean die=false;
+  boolean die=false;
   //  average=color(red(average), (blue(average)<100)?0:saturation(average), brightness(average));
-  if(abs(red(average)-blue(average))<25   && abs(green(average)-blue(average))<25 && abs(red(average)-green(average))<25){
+  if (abs(red(average)-blue(average))<colorDiff   && abs(green(average)-blue(average))<colorDiff && abs(red(average)-green(average))<colorDiff) {
     //average=color(0);
     die=true;
     println(index+" died");
   } 
   colorMode(HSB);
-  
-    println(index,red(average),green(average),blue(average));
-    if(die)
-    average=color(0,0,0);
-    else average=color(hue(average), 255, brightness(average-30));
+  //println(index,red(average),green(average),blue(average));
+  if (die)
+    average=color(0, 0, 0);
+  else average=color(hue(average)+hueOffset, 255, brightness(average-5));
 
- // average=color(hue(average), (saturation(average+150)>255)?255:(saturation(average+150)), brightness(average-30));
+  // average=color(hue(average), (saturation(average+150)>255)?255:(saturation(average+150)), brightness(average-30));
   try {
-   // if (key=='n') {
-      arduinoPort.write(index+",0x"+hex(average).substring(2, 8)+"\0");
-      //println(index);
-      //println("amount: "+antal+" RGB "+red(average), green(average), blue(average));
-   // }
+    // if (key=='n') {
+    arduinoPort.write(index+",0x"+hex(average).substring(2, 8)+"\0");
+    //println(index);
+    //println("amount: "+antal+" RGB "+red(average), green(average), blue(average));
+    // }
   }
   catch(Exception e) {
     println(e +" antal counted:"+antal);
   }
   colorMode(RGB);
 }
+color getCell(int x, int y) {
+  color cell;
+  int r=0, g=0, b=0;
+  boolean die=false;
 
+  //colorMode(RGB);
+  //loadPixels();
+  cell = get(x, y);
+  int saturation=int(saturation(cell));
+  int brightness=int(brightness(cell));
+
+  if ((saturation> black[0]-threshold && saturation<black[0]+threshold && brightness>black[1]-threshold && brightness<black[1]+threshold ) || 
+    (saturation> grey[0]-threshold && saturation<grey[0]+threshold && brightness>grey[1]-threshold && brightness<grey[1]+threshold) ||
+    (saturation> white[0]-threshold && saturation<white[0]+threshold && brightness>white[1]-threshold) ) {
+    die=true;
+  } 
+
+  r=int(red(cell)+modifierR);
+  g=int(green(cell)+modifierG);
+  b=int(blue(cell)+modifierB);
+
+  average=color(r, g, b);
+
+  if (abs(red(average)-blue(average))<colorDiff   && abs(green(average)-blue(average))<colorDiff && abs(red(average)-green(average))<colorDiff) {
+    die=true;
+  } 
+
+  colorMode(HSB);
+  if (die)  average=color(0, 0, 0);
+  else average=color(hue(average)+hueOffset, 255, brightness(average-5));
+  //stroke(255);
+  // point(x, y);
+
+  return average;
+}
+
+void writeColorToindex(color c, int i) {
+  try {
+    arduinoPort.write(i+",0x"+hex(c).substring(2, 8)+"\0");
+  }
+  catch(Exception e) {
+    println("cant write to index "+i);
+  }
+}
 
 void displayRowCapture(int x) {
   stroke(255);
@@ -434,5 +587,27 @@ void displayRowCapture(int x) {
   noFill();
   for (int i=0; i<16; i++) {
     ellipse( int(x), gridSize*i+topBound +1, 5, 5);
+  }
+}
+void displayGrid() {
+  strokeWeight(1);
+  stroke(0, 0, 0);
+  for (int i=0; i<kinect.width; i+=gridSize)line(i+offsetX, 0+offsetY, i+offsetX, kinect.height+offsetY);
+  for (int i=0; i<kinect.height; i+=gridSize)line(0+offsetX, i+offsetY, kinect.width+offsetX, i+offsetY);
+}
+void displayTempoBars() {
+
+
+
+  strokeWeight(1);
+  for (int i=0; i<width; i++) {
+    if (i%4==1) { 
+      stroke(100);
+      strokeWeight(3);
+    } else {
+      stroke(50);
+      strokeWeight(1);
+    }
+    line(i*width/32, 0, i*width/32, height);
   }
 }
