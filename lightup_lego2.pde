@@ -29,14 +29,17 @@ Kinect kinect;
 enum GAMEMODE {
   MERGE, MUSIC
 };
-GAMEMODE gameMode=GAMEMODE.MUSIC;
+GAMEMODE gameMode=GAMEMODE.MERGE;
 final int[]  black={100, 50}, grey={50, 200}, white={25, 252};
-int mx, my, interval=100, threshold=2, colorDiff=18, hueOffset=-22, modifierR=1, modifierG=5, modifierB=-1;
+//int mx, my, interval=100, threshold=2, colorDiff=18, hueOffset=-3, modifierR=3, modifierG=6, modifierB=-3;
+int mx, my, interval=130, threshold=35, colorDiff=60, hueOffset=0, modifierR=4, modifierG=2, modifierB=0;
+
 float deg;
 String portName="";
 boolean ir = false;
 boolean colorDepth = false;
 boolean mirror = false;
+boolean aim = false;
 byte gridSize=12;
 int rows=20, columns=20, offsetX, offsetY;
 boolean toggle, shift, grid;
@@ -93,7 +96,7 @@ void setup() {
 
   // Rendering in P3D
   //size(640, 480, P3D);
-  size(2000, 800, P3D);
+  size(2000, 900, P3D);
 
   // fullScreen();
   // kinect = new Kinect(this);
@@ -256,14 +259,15 @@ void draw() {
 
     break;
   case MUSIC:
-    ellipse(mouseX, mouseY, 10, 10);
+   // ellipse(mouseX, mouseY, 10, 10
+   
     if (timer+interval<millis()) {
       timer=millis();
       for (int i=leftBound; i<kinect.width-rightBound; i+=gridSize*.5) {
         for (int j=topBound; j<kinect.height-bottomBound; j+=gridSize*.5) {
           color temp=getCell(i+1, j+2);
-          int x  = int(map(i, leftBound, kinect.width-rightBound, 0, width));
-          int y   =int(map(j, topBound, kinect.height-bottomBound, 0, height));
+          int x  = int(map(i, leftBound, kinect.width-rightBound, width,0 ));
+          int y   =int(map(j, topBound, kinect.height-bottomBound,  height,0));
           boolean create=true;
           for (Block b : blockList) {
             if (b.coord.x==x&& b.coord.y==y) {
@@ -284,6 +288,7 @@ void draw() {
           }
         }
       }
+      
       int index=int(map(musicLine, 0, width, 40, 0));
 
       writeColorToindex(color(255), index);
@@ -291,6 +296,8 @@ void draw() {
       if (index==40)writeColorToindex(color(0), 0);
       else writeColorToindex(color(0), index+1);
     }
+          if(!aim)background(0);
+
     displayTempoBars();
 
     noFill();
@@ -329,7 +336,7 @@ void draw() {
 
     break;
   }
-  displayBounds();
+  if (aim)displayBounds();
 }
 
 void keyPressed() {
@@ -341,16 +348,20 @@ void keyPressed() {
     arduinoPort.write("4,0x00FFFF\0");
     arduinoPort.write("5,0x0000FF\0");
     arduinoPort.write("6,0xFF00FF\0");
-    background(255);
+    //  background(255);
   }
   if (48<=int(key) && int(key)<=57) {
     arduinoPort.write(Integer.parseInt(str(key)));
-    background(255);
+    // background(255);
   }
+  if (key=='a')aim=!aim;
   if (key==DELETE) {
-    for (int i=0; i<NUM_OF_RGB_LED; i++)arduinoPort.write(i+",0x000000\0");
+    for (Block b : blockList) {
+      b.kill();
+    }
+    // for (int i=0; i<NUM_OF_RGB_LED; i++)arduinoPort.write(i+",0x000000\0");
     //arduinoPort.write("delete ");
-    background(255);
+    //background(255);
   }
 
   if (key=='s')shift=!shift;
